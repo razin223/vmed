@@ -1,0 +1,399 @@
+<!doctype html>
+<html>
+    <head>
+        <title>VMed Service</title>
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/webrtc-adapter/7.4.0/adapter.min.js"></script>
+        <script type="text/javascript" src="https://code.jquery.com/jquery-3.5.1.min.js" ></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.3.0/socket.io.js"></script>
+        <script type="text/javascript">
+
+            navigator.getUserMedia = (navigator.getUserMedia ||
+                    navigator.webkitGetUserMedia ||
+                    navigator.mozGetUserMedia ||
+                    navigator.msGetUserMedia);
+
+
+            window.PeerConnection = window.webkitRTCPeerConnection || window.mozRTCPeerConnection || window.RTCPeerConnection;
+            window.SessionDescription = window.RTCSessionDescription || window.mozRTCSessionDescription || window.RTCSessionDescription;
+            window.IceCandidate = window.RTCIceCandidate || window.mozRTCIceCandidate || window.RTCIceCandidate;
+
+
+            var iceServers = [
+                {
+                    urls: 'stun:15.206.71.40:3478'
+                },
+                {
+                    'urls': 'turn:15.206.71.40:3478?transport=udp',
+                    'credential': 'rsaftert',
+                    'username': 'razin223'
+                },
+                {
+                    'urls': 'turn:15.206.71.40:3478',
+                    'credential': 'rsaftert',
+                    'username': 'razin223'
+                }
+            ];
+
+
+
+
+
+            var peer = new PeerConnection({
+                'iceServers': iceServers
+            });
+
+
+            function getAudio(successCallback, errorCallback) {
+
+                navigator.getUserMedia(
+                        {
+                            audio: true,
+                            video: true
+                        },
+                        successCallback, errorCallback);
+
+            }
+
+
+            function send_SDP(SocketService, to) {
+                console.log('now emitting send sdp message');
+                SocketService.emit('sdp', {
+                    'to': to,
+                    'sdp': peer.localDescription
+                });
+            }
+
+
+
+            function startCall(SocketService, to) {
+
+                getAudio(
+                        function (stream) {
+
+
+                            console.log('peer');
+                            console.log(peer);
+
+                            console.log('adding local stream');
+                            peer.addStream(stream);
+
+                            document.getElementById("own-video").srcObject = stream;
+                            document.getElementById("own-video").play();
+
+
+                            peer.onnegotiationneeded = () => {
+                                console.log("DD");
+                                peer.createOffer(function (offerSDP) {
+                                    console.log('now creating offer');
+                                    peer.setLocalDescription(offerSDP, function () {
+                                        console.log('local description is set. now informing peer');
+                                        console.log(offerSDP);
+
+                                        //send offer to remote user
+
+                                        SocketService.emit('call', {
+                                            'to': to,
+                                            'offerSDP': offerSDP
+                                        });
+                                    }, function () {
+                                        console.log('error setting local description')
+                                    });
+                                    console.log('now emitting offerSDP message');
+                                }, function () {
+                                    console.log('error occured while creating offer');
+                                });
+                            };
+
+
+
+
+
+                            console.log('now calling ' + to);
+                        },
+                        function (err) {
+                            console.log('an error occured while getting the audio');
+                        }
+                );
+
+
+            }
+
+
+            function createAnswer(offerSDP, SocketService, to) {
+
+                getAudio(
+                        function (stream) {
+                            console.log('now creating answer');
+                            console.log(stream);
+
+                            console.log('NOW ADDING STREAM');
+
+
+
+//                            var remoteDescription = new SessionDescription(offerSDP);
+//                            peer.setRemoteDescription(remoteDescription);
+
+
+                            peer.addStream(stream);
+
+
+                            document.getElementById("own-video").srcObject = stream;
+                            document.getElementById("own-video").play();
+
+
+                            peer.onnegotiationneeded = () => {
+
+                                console.log("Negotiation done on answer.");
+                                peer.createAnswer(function (answerSDP) {
+                                    peer.setLocalDescription(answerSDP, function () {
+                                        console.log('done setting local description');
+                                        console.log('now emitting answer sdp message');
+                                        SocketService.emit('answer', {
+                                            'to': to,
+                                            'answerSDP': answerSDP
+                                        });
+                                    }, function () {
+                                        console.log('error setting local description');
+                                    });
+                                }, function (err) {
+                                    alert('error occured while creating answer');
+                                    console.log(err);
+                                });
+                            }
+
+                        },
+                        function (err) {
+                            alert('error occured while getting the audio for answer');
+                        }
+                );
+
+            }
+
+
+
+
+
+
+        </script>
+    </head>
+    <body>
+        <div class="container">
+            <script type="text/javascript">
+                $(document).ready(function () {
+                    var Mobile = getCookie('mobile');
+
+
+                    socket = io.connect("http://localhost:3000?mobile=" + Mobile);
+
+                    //socket = io.connect("https://vmedsocket.shiramsystem.com?mobile=" + Mobile);
+
+                    socket.on('connect', () => {
+                        console.log('Successfully connected!');
+
+                        socket.on("welcome", (message) => {
+                            console.log(message);
+                        });
+
+                        socket.on('id', (msg) => {
+                            $("#socket-id").val(msg);
+                        });
+
+                        socket.on("new-list", (message) => {
+                            console.log("User list");
+                            console.log(message);
+                        });
+                        socket.on("typing", (msg) => {
+                            console.log("Typing");
+                            console.log(msg);
+
+                            $("#event-zone").html(msg.from + " is typing");
+                        });
+
+
+                        socket.on("typing-stopped", (msg) => {
+                            console.log("Typing stopped");
+                            console.log(msg);
+
+                            $("#event-zone").html("");
+                        });
+
+
+
+                        socket.on("text-msg", (msg) => {
+                            console.log("new message");
+                            console.log(msg);
+
+                            var Text = msg.msg;
+                            $("#text-message-zone").append("<p class='text-left' style='background-color:rgba(0,0,0,0.05);color:rgb(0,0,0)'>" + Text + "</p>");
+
+                        });
+
+
+
+                        socket.on('incoming-call', (msg) => {
+                            var remoteDescription = new RTCSessionDescription(msg.offerSDP);
+                            peer.setRemoteDescription(remoteDescription, function () {
+                                console.log('done setting remote description');
+                                createAnswer(msg.offerSDP, socket, msg.from);
+                            }, function () {
+                                console.log('error setting remote description');
+                            });
+                        });
+
+
+                        socket.on('answer', (data) => {
+
+                            console.log("answer recevied.");
+                            var remoteDescription = new RTCSessionDescription(data.answerSDP);
+                            peer.setRemoteDescription(remoteDescription, function () {
+                                console.log('finished signaling offers and answers!');
+                            }, function () {
+                                console.log('error signaling offers and answers');
+                            });
+                        });
+
+
+
+                        peer.onaddstream = (event) => {
+                            console.log("DD");
+                            document.getElementById("remote-video").srcObject = event.stream;
+                            document.getElementById("remote-video").play();
+                        };
+
+
+                        peer.onicecandidate = function (event) {
+                            console.log('on ice candidate');
+                            var candidate = event.candidate;
+                            console.log(candidate);
+                            console.log('after ice candidate');
+                            if (candidate) {
+                                console.log('now emitting candidate message');
+                                socket.emit('candidate', {
+                                    'to': $("#remote-id").val(),
+                                    'candidate': candidate
+                                });
+                            }
+
+                            console.log(typeof candidate);
+                            if (typeof candidate == 'undefined') {
+                                console.log('now sending sdp');
+                                send_SDP();
+                            }
+
+                        };
+
+
+
+                    });
+
+
+                    $("#text-message").keydown(function () {
+                        socket.emit('typing', {to: $("#remote-id").val()});
+                    });
+
+                    $("#text-message").keyup(function () {
+                        socket.emit('typing-stopped', {to: $("#remote-id").val()});
+                    });
+
+                    $("#send-text-message").click(() => {
+                        var Text = $("#text-message").val();
+                        $("#text-message-zone").append("<p class='text-right' style='background-color:rgb(0,0,255);color:rgb(255,255,255)'>" + Text + "</p>");
+                        socket.emit('text-msg', {to: $("#remote-id").val(), msg: Text});
+                    });
+
+
+
+
+                    $("#call").click(function () {
+                        var RemoteId = $("#remote-id").val();
+                        startCall(socket, RemoteId);
+
+
+                    });
+
+
+                });
+            </script>
+            <div class="row">
+                <div class="col-md-12">
+                    <form action="<?php echo $_SERVER['PHP_SELF'] ?>" method="POST">
+                        <input type="submit" name="logount" value="Logout" class="btn btn-danger pull-right"/> 
+                    </form>
+                </div>
+                <div class="col-md-12" >
+                    <div class="row">
+                        <div class="col-md-4">
+                            <b>Socket ID</b>
+                            <input type="text" id="socket-id" class="form-control"/>
+                        </div>
+
+                        <div class="col-md-4">
+                            <b>Remote Socket ID</b>
+                            <input type="text" id="remote-id" class="form-control"/>
+                        </div>
+                        <div class="col-md-4">
+                            <button id="call" class="btn btn-primary">Call</button>
+                        </div>
+                        <div class="col-md-12">
+                            <textarea id="text-message" class="form-control"></textarea>
+                            <button id="send-text-message" class="btn btn-info">Send</button>
+                        </div>
+                    </div>
+                    <div class="row">&nbsp;</div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <h3>Own</h3>
+                            <video id="own-video" muted/>
+                        </div>
+                        <div class="col-md-4">
+                            <h3>Remote</h3>
+                            <video id="remote-video"/>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <h2>Chat</h2>
+                        <span id="event-zone"></span>
+                        <div class="col-md-12" id="text-message-zone" style="height: 100px;overflow-y: auto"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+        <script type="text/javascript">
+            function setCookie(cname, cvalue, exdays) {
+                var d = new Date();
+                d.setTime(d.getTime() + (exdays * 24 * 60 * 60 * 1000));
+                var expires = "expires=" + d.toUTCString();
+                document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/";
+            }
+
+            function getCookie(cname) {
+                var name = cname + "=";
+                var ca = document.cookie.split(';');
+                for (var i = 0; i < ca.length; i++) {
+                    var c = ca[i];
+                    while (c.charAt(0) == ' ') {
+                        c = c.substring(1);
+                    }
+                    if (c.indexOf(name) == 0) {
+                        return c.substring(name.length, c.length);
+                    }
+                }
+                return "";
+            }
+
+            function checkCookie() {
+                var user = getCookie("username");
+                if (user != "") {
+                    alert("Welcome again " + user);
+                } else {
+                    user = prompt("Please enter your name:", "");
+                    if (user != "" && user != null) {
+                        setCookie("username", user, 365);
+                    }
+                }
+            }
+        </script>
+    </body>
+</html>
